@@ -78,6 +78,17 @@ button:disabled{opacity:.45;cursor:default}
 .mc.red{color:var(--red)}
 .seat.sm .mc{min-width:24px;height:32px;font-size:12px}
 .center .note .mc{height:28px;min-width:26px;font-size:13px;margin-left:4px}
+.seg{display:flex;gap:6px;background:rgba(90,30,0,.28);padding:5px;border-radius:999px;margin:0 0 14px}
+.seg button{box-shadow:none;padding:10px 8px}
+.seg button.off{background:transparent;border-color:transparent;color:#fff}
+.card.dim{filter:brightness(.62) saturate(.6)}
+.card.sel{transform:translateY(-16px);box-shadow:0 0 0 3px var(--gold),0 4px 10px rgba(0,0,0,.4)}
+.tslot{position:absolute;transform:translate(-50%,-50%);z-index:1}
+.tslot.arriving{opacity:0}
+.res{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:16px}
+.res td{padding:4px 6px;text-align:left}.res td.n{text-align:right;font-weight:800}
+.res tr.win td{color:#ffe14d}
+.passbar{padding:0 8px 6px;position:relative;z-index:1}
 .toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:rgba(45,15,0,.9);padding:8px 14px;border-radius:999px;font-weight:700;z-index:9}
 </style>
 </head>
@@ -190,17 +201,174 @@ function viewFor(i){
 }
 // ---------- ENGINE END ----------
 
+// ---------- ENGINE HJERTERFRI START (kører kun hos værten) ----------
+// 4 spillere, 52 kort, 13 hver. Giv 3 kort (til venstre, til højre, overfor, ingen – på skift),
+// 2♣ spiller ud, bekend kulør, hjerter spilles ikke ud før hjerter er brudt, ingen point i første stik.
+// Hvert hjerter = 1 point, spar dame = 13. Tager én alle 26, får de andre 26 (skyd månen).
+// Spillet slutter når nogen når 100; laveste score vinder. Tilstanden ligger i G.h.
+const HV = r => r === 'A' ? 14 : RANKS.indexOf(r) + 1;
+const isQS = c => c.r === 'Q' && c.s === '♠';
+const cardPts = c => c.s === '♥' ? 1 : isQS(c) ? 13 : 0;
+const PASS_DIRS = ['left', 'right', 'across', 'none'];
+const DIR_TXT = { left: 'til venstre', right: 'til højre', across: 'overfor' };
+const passTarget = (p, dir) => (p + (dir === 'left' ? 1 : dir === 'right' ? 3 : 2)) % 4;
+const HSUITS = ['♣', '♦', '♠', '♥'];
+const hSorted = h => h.slice().sort((a, b) => HSUITS.indexOf(a.s) - HSUITS.indexOf(b.s) || HV(a.r) - HV(b.r));
+
+function hStartGame(){
+  G.players = G.players.filter(p => p.online);
+  while (G.players.length < 4) G.players.push(makeBot());
+  if (G.players.length !== 4) return;
+  G.log = []; G.phase = 'playing';
+  G.h = { round: 0, scores: [0, 0, 0, 0], moves: 0 };
+  addLog('Hjerterfri: første til 100 taber – laveste score vinder');
+  hStartRound();
+  broadcast();
+}
+
+function hStartRound(){
+  const H = G.h;
+  H.round++;
+  H.passDir = PASS_DIRS[(H.round - 1) % 4];
+  const deck = [];
+  for (const s of SUITS) for (const r of RANKS) deck.push({ r, s });
+  shuffle(deck);
+  H.hands = [0, 1, 2, 3].map(i => deck.slice(i * 13, i * 13 + 13));
+  H.taken = [[], [], [], []];
+  H.passes = [null, null, null, null];
+  H.received = null; H.trick = []; H.tricks = 0; H.heartsBroken = false; H.roundPts = null; H.winner = null;
+  addLog(`Runde ${H.round}: ` + (H.passDir === 'none' ? 'ingen kort gives' : `giv 3 kort ${DIR_TXT[H.passDir]}`));
+  if (H.passDir === 'none') hBeginPlay(); else H.phase = 'pass';
+}
+
+function hBeginPlay(){
+  const H = G.h;
+  H.phase = 'play';
+  H.turn = H.hands.findIndex(h => h.some(c => c.r === '2' && c.s === '♣'));
+}
+
+function hPass(p, cards){
+  const H = G.h;
+  if (H.phase !== 'pass' || H.passes[p] || !Array.isArray(cards) || cards.length !== 3) return;
+  const picked = [];
+  for (const c of cards){
+    const k = H.hands[p].findIndex(x => c && x.r === c.r && x.s === c.s && !picked.includes(x));
+    if (k < 0) return;
+    picked.push(H.hands[p][k]);
+  }
+  H.passes[p] = picked;
+  if (H.passes.every(Boolean)){
+    H.passes.forEach((cs, q) => { H.hands[q] = H.hands[q].filter(c => !cs.includes(c)); });
+    H.passes.forEach((cs, q) => H.hands[passTarget(q, H.passDir)].push(...cs));
+    H.received = [0, 1, 2, 3].map(q => H.passes[[0, 1, 2, 3].find(r => passTarget(r, H.passDir) === q)]);
+    addLog('Alle har givet 3 kort videre');
+    hBeginPlay();
+  }
+  broadcast();
+}
+
+function hLegal(p){
+  const H = G.h, hand = H.hands[p], T = H.trick, first = H.tricks === 0;
+  if (!T.length){
+    if (first) return hand.filter(c => c.r === '2' && c.s === '♣');
+    if (!H.heartsBroken){ const nh = hand.filter(c => c.s !== '♥'); if (nh.length) return nh; }
+    return hand.slice();
+  }
+  const follow = hand.filter(c => c.s === T[0].card.s);
+  if (follow.length) return follow;
+  if (first){ const clean = hand.filter(c => !cardPts(c)); if (clean.length) return clean; }
+  return hand.slice();
+}
+
+function hPlay(p, card){
+  const H = G.h;
+  if (H.phase !== 'play' || H.turn !== p || !card) return;
+  const c = hLegal(p).find(x => x.r === card.r && x.s === card.s);
+  if (!c) return;
+  H.hands[p] = H.hands[p].filter(x => x !== c);
+  H.trick.push({ p, card: c });
+  if (c.s === '♥') H.heartsBroken = true;
+  H.move = { id: ++H.moves, kind: 'play', p, card: c };
+  if (H.trick.length === 4){
+    const suit = H.trick[0].card.s;
+    H.winner = H.trick.filter(t => t.card.s === suit).reduce((a, b) => HV(b.card.r) > HV(a.card.r) ? b : a).p;
+    H.phase = 'collect';
+  } else H.turn = (p + 1) % 4;
+  broadcast();
+}
+
+function hCollect(){
+  const H = G.h;
+  if (!H || H.phase !== 'collect') return;
+  const cards = H.trick.map(t => t.card), pts = cards.reduce((a, c) => a + cardPts(c), 0);
+  H.taken[H.winner].push(...cards);
+  H.move = { id: ++H.moves, kind: 'collect', p: H.winner, trick: H.trick };
+  addLog(`${G.players[H.winner].name} tog stikket` + (pts ? ` (${pts} point)` : ''));
+  H.trick = []; H.tricks++;
+  if (H.tricks === 13) hEndRound();
+  else { H.phase = 'play'; H.turn = H.winner; }
+  broadcast();
+}
+
+function hEndRound(){
+  const H = G.h;
+  let pts = H.taken.map(t => t.reduce((a, c) => a + cardPts(c), 0));
+  const moon = pts.indexOf(26);
+  if (moon >= 0){ pts = pts.map((_, i) => i === moon ? 0 : 26); addLog(`${G.players[moon].name} skød månen! 🌙`); }
+  H.roundPts = pts;
+  H.scores = H.scores.map((x, i) => x + pts[i]);
+  addLog(`Runde ${H.round}: ` + G.players.map((p, i) => `${p.name} ${pts[i]}`).join(', '));
+  if (Math.max(...H.scores) >= 100){
+    const low = Math.min(...H.scores);
+    H.winners = H.scores.map((x, i) => x === low ? i : -1).filter(i => i >= 0);
+    H.phase = 'gameover'; G.phase = 'over';
+    addLog(`${H.winners.map(i => G.players[i].name).join(' og ')} vinder! 🏆`);
+  } else H.phase = 'roundover';
+}
+
+function hAct(p, msg){
+  if (msg.t === 'start' && p === 0) hStartGame();
+  else if (msg.t === 'bot' && p === 0) addBot();
+  else if (msg.t === 'nobots' && p === 0) removeBots();
+  else if (!G.h || G.phase === 'lobby') return;
+  else if (msg.t === 'hpass') hPass(p, msg.cards);
+  else if (msg.t === 'hplay') hPlay(p, msg.card);
+  else if (msg.t === 'hnext' && p === 0 && G.h.phase === 'roundover'){ hStartRound(); broadcast(); }
+}
+
+function hViewFor(i){
+  const H = G.h;
+  return {
+    t: 'state', game: 'hjerterfri', me: i, isHost: i === 0, code: roomCode, phase: G.phase, hphase: H.phase,
+    round: H.round, passDir: H.passDir, turn: H.turn, winner: H.winner,
+    players: G.players.map((p, k) => ({ name: p.name, online: p.online, bot: !!p.bot, out: false, count: H.hands[k].length,
+      pts: H.taken[k].reduce((a, c) => a + cardPts(c), 0), score: H.scores[k], passed: !!H.passes[k] })),
+    hand: hSorted(H.hands[i]), legal: H.phase === 'play' && H.turn === i ? hLegal(i) : [],
+    passed: !!H.passes[i], received: H.received && H.tricks === 0 ? H.received[i] : null,
+    trick: H.trick, move: H.move || null, roundPts: H.roundPts, scores: H.scores, winners: H.winners || null,
+    log: G.log.slice(-8)
+  };
+}
+// ---------- ENGINE HJERTERFRI END ----------
+
 // ---------- Computerspillere (kun værten) ----------
 // En computer er en spiller uden forbindelse; når det er dens tur, trækker den et tilfældigt kort.
 let botTimer = null;
 const BOT_MS = 3000;   // computeren trækker selv efter 3 s
 
-function addBot(){
-  if (G.phase !== 'lobby' || G.players.length >= 8) return;
+const maxPlayers = () => G.game === 'hjerterfri' ? 4 : 8;
+
+function makeBot(){
   let n = 1;
   while (G.players.some(p => p.name === 'Computer ' + n)) n++;
-  G.players.push({ id:'bot' + n, name:'Computer ' + n, hand:[], out:false, conn:null, online:true, bot:true });
-  addLog(`Computer ${n} kom ind`);
+  return { id:'bot' + n, name:'Computer ' + n, hand:[], out:false, conn:null, online:true, bot:true };
+}
+
+function addBot(){
+  if (G.phase !== 'lobby' || G.players.length >= maxPlayers()) return;
+  const b = makeBot();
+  G.players.push(b);
+  addLog(`${b.name} kom ind`);
   broadcast();
 }
 
@@ -215,19 +383,62 @@ function soloGame(){
   const name = getName(); if (!name) return;
   if (peer){ peer.destroy(); peer = null; }
   isHost = true; roomCode = 'DEMO';
-  G = { phase:'lobby', players:[{ id:'host', name, hand:[], out:false, conn:null, online:true }], turn:0, log:[], loser:null, lastDraw:null };
+  G = { game: chosenGame, phase:'lobby', players:[{ id:'host', name, hand:[], out:false, conn:null, online:true }], turn:0, log:[], loser:null, lastDraw:null };
   for (let i = 0; i < 3; i++) addBot();
-  startGame();
+  if (G.game === 'hjerterfri') hStartGame(); else startGame();
 }
 
 function scheduleBot(){
   clearTimeout(botTimer);
+  if (G && G.game === 'hjerterfri'){ if (G.phase === 'playing') hScheduleBot(); return; }
   if (!G || G.phase !== 'playing' || !G.players[G.turn].bot) return;
   const p = G.turn;
   botTimer = setTimeout(() => {
     if (G.phase !== 'playing' || G.turn !== p) return;
     doDraw(p, Math.floor(Math.random() * G.players[nextActive(p)].hand.length));
   }, BOT_MS);
+}
+
+// Hjerterfri: computerne giver kort med det samme, spiller et kort efter 1,5 s; et fuldt stik
+// bliver liggende TRICK_MS, så alle kan se de fire kort, før vinderen tager det.
+const H_BOT_MS = 1500, TRICK_MS = 2200;
+let collectTimer = null, collectFor = 0;
+
+function hScheduleBot(){
+  const H = G.h;
+  if (H.phase === 'pass'){
+    const todo = G.players.map((p, i) => i).filter(i => G.players[i].bot && !H.passes[i]);
+    if (todo.length) botTimer = setTimeout(() => todo.forEach(i => { if (G.h === H && H.phase === 'pass' && !H.passes[i]) hBotPass(i); }), 800);
+  } else if (H.phase === 'play' && G.players[H.turn].bot){
+    const p = H.turn;
+    botTimer = setTimeout(() => { if (G.h === H && H.phase === 'play' && H.turn === p) hBotPlay(p); }, H_BOT_MS);
+  } else if (H.phase === 'collect' && collectFor !== H.moves){
+    collectFor = H.moves;
+    clearTimeout(collectTimer);
+    collectTimer = setTimeout(hCollect, TRICK_MS);
+  }
+}
+
+// giv de farligste kort væk: spar dame, høje spar, høje hjerter, høje kort
+function hBotPass(p){
+  const danger = c => (isQS(c) ? 100 : c.s === '♠' && HV(c.r) > 12 ? 60 : 0) + (c.s === '♥' ? 15 : 0) + HV(c.r);
+  hPass(p, G.h.hands[p].slice().sort((a, b) => danger(b) - danger(a)).slice(0, 3));
+}
+
+// enkel strategi: duk under stikket, smid spar dame / høje hjerter når man ikke kan bekende
+function hBotPlay(p){
+  const H = G.h, legal = hLegal(p), T = H.trick;
+  const asc = legal.slice().sort((a, b) => HV(a.r) - HV(b.r));
+  let pick;
+  if (!T.length) pick = asc.find(c => !isQS(c) && c.s !== '♥') || asc.find(c => !isQS(c)) || asc[0];
+  else if (legal[0].s === T[0].card.s){
+    const suit = T[0].card.s, top = Math.max(...T.filter(t => t.card.s === suit).map(t => HV(t.card.r)));
+    const under = asc.filter(c => HV(c.r) < top), pts = T.reduce((a, t) => a + cardPts(t.card), 0);
+    if (under.length) pick = under[under.length - 1];
+    else if (T.length === 3 && !pts) pick = asc.filter(c => !isQS(c)).pop() || asc[asc.length - 1];
+    else pick = asc.find(c => !isQS(c)) || asc[0];
+  } else pick = legal.find(isQS) || legal.filter(c => c.s === '♥').sort((a, b) => HV(b.r) - HV(a.r))[0] || asc[asc.length - 1];
+  hPlay(p, pick);
 }
 
 // ---------- Bordet (kun værten): kortene i spil i denne runde og det seneste træk ----------
@@ -252,11 +463,17 @@ function noteTable(){
 }
 
 function broadcast(){
-  noteTable();
+  const hearts = G.game === 'hjerterfri' && G.h && G.phase !== 'lobby';
+  if (!hearts) noteTable();
   G.players.forEach((p,i) => {
-    const v = viewFor(i);
-    v.round = table.round; v.move = table.move;
-    v.drew = table.drew[i] || null; v.lost = table.lost[i] || null;
+    let v;
+    if (hearts) v = hViewFor(i);
+    else {
+      v = viewFor(i);
+      v.game = G.game || 'sparbonde';
+      v.round = table.round; v.move = table.move;
+      v.drew = table.drew[i] || null; v.lost = table.lost[i] || null;
+    }
     if (i === 0){ view = v; render(); }
     else if (p.conn && p.online){ try { p.conn.send(v); } catch(e) {} }
   });
@@ -278,7 +495,7 @@ function createRoom(){
   setStatus('Opretter rum…');
   peer = new Peer(PREFIX + roomCode);
   peer.on('open', () => {
-    G = { phase:'lobby', players:[{ id:'host', name, hand:[], out:false, conn:null, online:true }], turn:0, log:[], loser:null, lastDraw:null };
+    G = { game: chosenGame, phase:'lobby', players:[{ id:'host', name, hand:[], out:false, conn:null, online:true }], turn:0, log:[], loser:null, lastDraw:null };
     addLog(`${name} oprettede rummet`);
     broadcast();
   });
@@ -306,7 +523,19 @@ function onHostMsg(conn, msg){
     return;
   }
   const p = G.players.findIndex(x => x.conn === conn);
-  if (p > 0) act(p, msg);
+  if (p > 0) route(p, msg);
+}
+
+// et træk til det spil rummet spiller; værten vælger spillet i lobbyen
+function route(p, msg){
+  if (!msg || typeof msg !== 'object' || !G) return;
+  if (msg.t === 'game' && p === 0 && G.phase === 'lobby'){
+    G.game = GAMES[msg.game] ? msg.game : 'sparbonde';
+    addLog(`Spillet er nu ${GAMES[G.game].name}`);
+    broadcast();
+    return;
+  }
+  if (G.game === 'hjerterfri') hAct(p, msg); else act(p, msg);
 }
 
 function onHostClose(conn){
@@ -340,7 +569,7 @@ function joinRoom(){
 }
 
 function send(msg){
-  if (isHost) act(0, msg);
+  if (isHost) route(0, msg);
   else if (hostConn && hostConn.open) hostConn.send(msg);
 }
 
@@ -352,6 +581,15 @@ window.addEventListener('beforeunload', e => { if (isHost && G && G.players.leng
 
 // ---------- UI ----------
 let showLog = false;
+const GAMES = {
+  sparbonde: { name: 'Spar Bonde', icon: '♠', sub: 'Træk kort, smid par – undgå spar bonde.' },
+  hjerterfri: { name: 'Hjerterfri', icon: '♥', sub: 'Stik uden hjerter og spar dame – laveste score vinder.' }
+};
+let chosenGame = GAMES[lsGet('sb_game')] ? lsGet('sb_game') : 'sparbonde';
+function chooseGame(g){ chosenGame = g; lsSet('sb_game', g); renderLobby(); }
+const gameOf = v => GAMES[v && v.game] ? v.game : 'sparbonde';
+const segHtml = (cur, onclick) => '<div class="seg">' + Object.keys(GAMES).map(g =>
+  `<button class="${g === cur ? '' : 'off'}" onclick="${onclick}('${g}')">${GAMES[g].icon} ${GAMES[g].name}</button>`).join('') + '</div>';
 const AVATARS = ['🦊','🐻','🐼','🐸','🦁','🐯','🐵','🐨','🐷','🐮'];
 const avatar = p => p.bot ? '🤖' : AVATARS[[...p.name].reduce((a,c) => a + c.codePointAt(0), 0) % AVATARS.length];
 const rankTxt = r => r === 'J' ? 'B' : r;
@@ -369,7 +607,8 @@ const shareLink = code => location.origin + location.pathname + '#' + code;
 
 function shareRoom(){
   const url = shareLink(view.code);
-  if (navigator.share) navigator.share({ title:'Spar Bonde', text:'Spil Spar Bonde med mig', url }).catch(() => {});
+  const name = GAMES[gameOf(view)].name;
+  if (navigator.share) navigator.share({ title: name, text: `Spil ${name} med mig`, url }).catch(() => {});
   else if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => flash('Link kopieret'));
 }
 
@@ -391,14 +630,19 @@ function fan(n, cw, item){
   return `<div class="fan">${h}</div>`;
 }
 
+// plads k (1 = den næste efter dig) blandt n spillere: til venstre, med uret over toppen, til højre
+function seatGeom(n, k){
+  const m = n - 1, a = (m === 1 ? 90 : 180 - (k - 1) * 180 / (m - 1)) * Math.PI / 180;
+  return { a, x: 50 + 37 * Math.cos(a), y: 34 - 26 * Math.sin(a), sm: m > 4 };
+}
+
 // modspillerne rundt om bordet: den du trækker fra sidder til venstre, resten med uret over toppen
 function seatsHtml(v){
   const P = v.players, n = P.length, m = n - 1, playing = v.phase === 'playing';
   let h = '';
   for (let k = 1; k < n; k++){
     const i = (v.me + k) % n, p = P[i];
-    const a = (m === 1 ? 90 : 180 - (k - 1) * 180 / (m - 1)) * Math.PI / 180;
-    const x = 50 + 37 * Math.cos(a), y = 34 - 26 * Math.sin(a), sm = m > 4;
+    const { a, x, y, sm } = seatGeom(n, k);
     const cls = [sm ? 'sm' : '', playing && i === v.turn ? 'turn' : '', playing && i === v.target ? 'target' : '', p.out ? 'out' : ''].join(' ');
     h += `<div class="seat ${cls}" data-i="${i}" style="left:${x}%;top:${y}%"><div class="av">${avatar(p)}</div>` +
       `<div class="plate"><div class="nm">${esc(p.name)}${p.online ? '' : ' ⚠️'}</div>` +
@@ -459,9 +703,12 @@ function animateMove(v){
 
 function renderLobby(){
   const hashCode = (location.hash.slice(1) || '').toUpperCase().slice(0,4);
+  const g = GAMES[chosenGame];
+  document.title = g.name;
   app.innerHTML = `<div class="page">
-    <h1>♠ Spar Bonde</h1>
-    <p class="sub">Træk kort, smid par – undgå spar bonde.</p>
+    <h1>${g.icon} ${g.name}</h1>
+    <p class="sub">${g.sub}</p>
+    ${hashCode ? '' : segHtml(chosenGame, 'chooseGame')}
     <div class="box">
       <label>Dit navn</label>
       <input id="name" maxlength="16" placeholder="Navn" value="${esc(lsGet('sb_name') || '')}">
@@ -476,16 +723,21 @@ function renderLobby(){
     </div></div>`;
 }
 
+function pickRoomGame(g){ send({ t:'game', game:g }); }
+
 function renderRoom(v){
-  const P = v.players;
-  let h = `<div class="page"><h1>♠ Spar Bonde</h1><div class="box"><p class="note">Del koden <b>${esc(v.code)}</b> eller linket:</p>
+  const P = v.players, gk = gameOf(v), g = GAMES[gk], hearts = gk === 'hjerterfri', max = hearts ? 4 : 8;
+  document.title = g.name;
+  let h = `<div class="page"><h1>${g.icon} ${g.name}</h1>${v.isHost ? segHtml(gk, 'pickRoomGame') : ''}<div class="box"><p class="note">Del koden <b>${esc(v.code)}</b> eller linket:</p>
     <input readonly value="${esc(shareLink(v.code))}" onclick="this.select()">
     <button class="sec" style="margin-bottom:6px" onclick="shareRoom()">Del link</button>
     <div class="lobbyp">${P.map((p,i) => `<span class="lp"><span class="av">${avatar(p)}</span>${esc(p.name)}${i === v.me ? ' (dig)' : ''}</span>`).join('')}</div>`;
   h += v.isHost
-    ? `<button class="sec" style="margin-bottom:8px" onclick="send({t:'bot'})" ${P.length >= 8 ? 'disabled' : ''}>🤖 Tilføj computer</button>` +
+    ? `<button class="sec" style="margin-bottom:8px" onclick="send({t:'bot'})" ${P.length >= max ? 'disabled' : ''}>🤖 Tilføj computer</button>` +
       (P.some(p => p.bot) ? `<button class="sec" style="margin-bottom:8px" onclick="send({t:'nobots'})">Fjern computere</button>` : '') +
-      `<button onclick="send({t:'start'})" ${P.length < 2 ? 'disabled' : ''}>Start spil (${P.length} spillere)</button>`
+      (hearts
+        ? `<button onclick="send({t:'start'})" ${P.length > 4 ? 'disabled' : ''}>${P.length > 4 ? 'Hjerterfri er for 4 spillere' : `Start Hjerterfri (${P.length} spiller${P.length > 1 ? 'e' : ''}${P.length < 4 ? ` + ${4 - P.length} computer${4 - P.length > 1 ? 'e' : ''}` : ''})`}</button>`
+        : `<button onclick="send({t:'start'})" ${P.length < 2 ? 'disabled' : ''}>Start spil (${P.length} spillere)</button>`)
     : '<p class="note">Venter på at værten starter…</p>';
   h += `</div><div class="box"><ul style="margin:0;padding-left:18px">${v.log.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div></div>`;
   app.innerHTML = h;
@@ -495,6 +747,8 @@ function render(){
   if (!view){ renderLobby(); return; }
   const v = view;
   if (v.phase === 'lobby'){ renderRoom(v); return; }
+  if (gameOf(v) === 'hjerterfri'){ renderHearts(v); return; }
+  document.title = 'Spar Bonde';
   const P = v.players, me = v.me, playing = v.phase === 'playing', tgt = P[v.target];
   const myTurn = playing && v.turn === me;
 
@@ -533,6 +787,117 @@ function render(){
   if (showLog) h += `<div class="logp" onclick="showLog=false;render()"><ul>${v.log.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>`;
   app.innerHTML = h + '</div>';
   animateMove(v);
+}
+
+// ---------- Hjerterfri: bordet ----------
+let hSel = [], hSelKey = '';
+const ckey = c => c.r + c.s;
+// stikket: hvert kort foran den der spillede det (dig nederst, venstre, øverst, højre)
+const TRICK_POS = [['50%', '78%'], ['31%', '54%'], ['50%', '36%'], ['69%', '54%']];
+const trickPos = (v, p) => TRICK_POS[(p - v.me + 4) % 4];
+
+function hToggle(i){
+  const c = view.hand[i], k = ckey(c);
+  hSel = hSel.includes(k) ? hSel.filter(x => x !== k) : hSel.length < 3 ? hSel.concat(k) : hSel;
+  render();
+}
+function hSendPass(){
+  if (hSel.length !== 3) return;
+  send({ t:'hpass', cards: hSel.map(k => view.hand.find(c => ckey(c) === k)) });
+  hSel = [];
+}
+
+function hSeatsHtml(v){
+  const P = v.players;
+  let h = '';
+  for (let k = 1; k < 4; k++){
+    const i = (v.me + k) % 4, p = P[i], { x, y } = seatGeom(4, k);
+    const turn = (v.hphase === 'play' && i === v.turn) || (v.hphase === 'collect' && i === v.winner);
+    h += `<div class="seat ${turn ? 'turn' : ''}" data-i="${i}" style="left:${x}%;top:${y}%"><div class="av">${avatar(p)}</div>` +
+      `<div class="plate"><div class="nm">${esc(p.name)}${p.online ? '' : ' ⚠️'}</div>` +
+      `<div class="ct"><span>${p.pts}♥</span><span>${p.score}</span></div></div></div>`;
+  }
+  return h;
+}
+
+function renderHearts(v){
+  document.title = 'Hjerterfri';
+  const P = v.players, me = v.me, hp = v.hphase, myTurn = hp === 'play' && v.turn === me;
+  const key = v.round + hp;
+  if (key !== hSelKey){ hSelKey = key; hSel = []; }
+  const passTo = v.passDir && v.passDir !== 'none' ? P[(me + (v.passDir === 'left' ? 1 : v.passDir === 'right' ? 3 : 2)) % 4] : null;
+
+  let pill = '', go = false;
+  if (hp === 'pass') pill = v.passed ? 'Venter på de andre…' : `Vælg 3 kort til ${esc(passTo.name)}`;
+  else if (hp === 'play'){ if (myTurn){ pill = 'Din tur – spil et kort'; go = true; } else pill = `${esc(P[v.turn].name)} spiller…`; }
+  else if (hp === 'collect') pill = v.winner === me ? 'Du tager stikket' : `${esc(P[v.winner].name)} tager stikket`;
+  else if (hp === 'roundover') pill = `Runde ${v.round} er slut`;
+  else pill = 'Spillet er slut';
+
+  // før kortene tegnes om: hvor stikket lå (et taget stik flyver derfra til vinderen)
+  const prevTrick = {};
+  if (document.querySelectorAll) document.querySelectorAll('[data-trick]').forEach(el => { prevTrick[el.dataset.trick] = { r: rectOf(el), html: el.innerHTML }; });
+
+  let h = '<div class="table"><div class="wm">♥</div><div class="topbar">' +
+    `<span class="roomchip">${v.code === 'DEMO' ? 'Øvespil' : 'Rum ' + esc(v.code)} · runde ${v.round}</span><div class="rbtns">` +
+    (v.code === 'DEMO' ? '' : `<button class="rb" title="Del link" onclick="shareRoom()">${ICON.share}</button>`) +
+    (v.isHost ? `<button class="rb" title="Nyt spil" onclick="newGame()">${ICON.again}</button>` : '') +
+    `<button class="rb" title="Log" onclick="showLog=!showLog;render()">${ICON.log}</button></div></div>`;
+
+  h += '<div class="arena">' + hSeatsHtml(v);
+  for (const t of v.trick){
+    const [x, y] = trickPos(v, t.p);
+    const arriving = v.move && v.move.kind === 'play' && v.move.p === t.p && v.move.id !== hAnimDone;
+    h += `<div class="tslot ${arriving ? 'arriving' : ''}" data-trick="${t.p}" style="left:${x};top:${y}">${cardHtml(t.card, '', '--cw:56px')}</div>`;
+  }
+  if (hp === 'roundover' || hp === 'gameover'){
+    const order = P.map((p, i) => i).sort((a, b) => v.scores[a] - v.scores[b]);
+    h += `<div class="over"><div class="big">${hp === 'gameover' ? '🏆 ' + v.winners.map(i => i === me ? 'Du' : esc(P[i].name)).join(' og ') + ' vinder!' : `Runde ${v.round}`}</div>` +
+      '<table class="res"><tr><td></td><td class="n">Runde</td><td class="n">Total</td></tr>' +
+      order.map(i => `<tr class="${(v.winners || []).includes(i) ? 'win' : ''}"><td>${avatar(P[i])} ${esc(P[i].name)}</td><td class="n">${v.roundPts[i]}</td><td class="n">${v.scores[i]}</td></tr>`).join('') + '</table>' +
+      (v.isHost ? (hp === 'gameover' ? '<button onclick="newGame()">Nyt spil</button>' : '<button onclick="send({t:\'hnext\'})">Næste runde</button>')
+                : '<p class="note">Venter på værten…</p>') + '</div>';
+  }
+  h += '</div>';
+
+  if (hp === 'pass' && !v.passed) h += `<div class="passbar"><button onclick="hSendPass()" ${hSel.length === 3 ? '' : 'disabled'}>Giv ${hSel.length}/3 kort ${DIR_TXT[v.passDir]}</button></div>`;
+  h += `<div class="bar"><div class="count"><span>${P[me].pts}♥</span><span>${P[me].score}</span></div><div class="pill ${go ? 'go' : ''}">${pill}</div></div>`;
+
+  const cw = Math.round(Math.max(56, Math.min(92, (Math.min(window.innerWidth || 380, 720) - 16) / 5.6)));
+  const legal = new Set(v.legal.map(ckey)), canPass = hp === 'pass' && !v.passed, recv = new Set((v.received || []).map(ckey));
+  h += '<div class="hand" id="myhand">' + (v.hand.length ? fan(v.hand.length, cw, (i, st, ov) => {
+    const c = v.hand[i], k = ckey(c);
+    let cls = ov ? 'ov ' : '';
+    if (myTurn) cls += legal.has(k) ? 'tap ' : 'dim ';
+    if (canPass) cls += 'tap ' + (hSel.includes(k) ? 'sel ' : '');
+    if (recv.has(k)) cls += 'new ';
+    const click = myTurn && legal.has(k) ? `send({t:'hplay',card:{r:'${c.r}',s:'${c.s}'}})` : canPass ? `hToggle(${i})` : '';
+    return cardHtml(c, cls, st).replace('<div class="card', `<div ${click ? `onclick="${click}"` : ''} class="card`);
+  }) : '') + '</div>';
+
+  if (showLog) h += `<div class="logp" onclick="showLog=false;render()"><ul>${v.log.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>`;
+  app.innerHTML = h + '</div>';
+  hAnimate(v, prevTrick);
+}
+
+// et spillet kort flyver fra spilleren til stikket; et taget stik flyver til vinderen – med hale
+let hAnimStarted = 0, hAnimDone = 0;
+function hAnimate(v, prevTrick){
+  const m = v.move;
+  if (!m || m.id === hAnimStarted) return;
+  hAnimStarted = m.id;
+  const finish = () => { hAnimDone = m.id; document.querySelectorAll('.tslot.arriving').forEach(el => el.classList.remove('arriving')); };
+  if (!document.body.animate){ finish(); return; }
+  if (m.kind === 'play'){
+    const a = anchorOf(v, m.p), slot = document.querySelector(`[data-trick="${m.p}"]`);
+    if (!a || !slot){ finish(); return; }
+    fly(cardHtml(m.card, '', '--cw:56px'), a, rectOf(slot), 550, finish);
+  } else {
+    const b = anchorOf(v, m.p);
+    const from = m.trick.map(t => prevTrick[t.p]).filter(Boolean);
+    if (!b || !from.length){ finish(); return; }
+    from.forEach((f, k) => fly(f.html, f.r, b, 650, k ? null : finish));
+  }
 }
 
 window.addEventListener('resize', () => { if (view && view.phase !== 'lobby') render(); });

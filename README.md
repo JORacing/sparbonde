@@ -30,6 +30,18 @@ Et multiplayer-kortspil i browseren for 2–8 spillere: dansk Sorteper med almin
 - Værten skal holde siden åben, så længe der spilles.
 - Mister en spiller forbindelsen midt i et spil, må værten trykke "Nyt spil".
 
+## Hjerterfri
+
+Vælg "♥ Hjerterfri" øverst på forsiden (eller i rummets lobby) for at spille Hjerterfri i stedet.
+
+- 4 spillere, 52 kort, 13 hver. Er I færre end 4, fylder computere op.
+- Før hver runde giver man 3 kort videre: til venstre, til højre, overfor, og hver fjerde runde ingen.
+- Den med klør 2 spiller ud. Man skal bekende kulør; kan man ikke, må man smide hvad som helst.
+- Hjerter må ikke spilles ud, før der er smidt hjerter i et stik. I første stik må man ikke smide point.
+- Den højeste i den udspillede kulør tager stikket.
+- Hvert hjerter giver 1 point og spar dame 13. Tager én spiller alle 26 point ("skyder månen"), får de tre andre 26 hver.
+- Spillet slutter, når nogen når 100 point. Laveste score vinder.
+
 ## Kommer senere
 
 - **Jerlev:** en lokal variant. Reglerne kommer senere.
