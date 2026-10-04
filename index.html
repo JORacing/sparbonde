@@ -8,36 +8,68 @@
 <title>Spar Bonde</title>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
-:root{--felt2:#0b3d26;--ink:#f5f5f0;--card:#fff;--red:#c62828;--blk:#1a1a1a;--accent:#ffd54f}
-*{box-sizing:border-box}
-body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:radial-gradient(circle at 50% 0,#17734a,var(--felt2) 70%);background-attachment:fixed;color:var(--ink);min-height:100vh}
-#app{max-width:720px;margin:0 auto;padding:16px 16px 40px}
-h1{margin:8px 0 4px;font-size:28px}
-.sub{opacity:.8;margin:0 0 20px}
-.box{background:rgba(0,0,0,.25);border-radius:14px;padding:16px;margin-bottom:14px}
-label{font-size:14px;opacity:.85}
-input{font:inherit;padding:12px;border-radius:10px;border:none;width:100%;margin:6px 0 10px}
-button{font:inherit;font-weight:600;padding:12px 16px;border-radius:10px;border:none;background:var(--accent);color:#222;cursor:pointer;width:100%}
-button.sec{background:rgba(255,255,255,.15);color:var(--ink)}
-button:disabled{opacity:.4;cursor:default}
-.top{display:flex;justify-content:space-between;align-items:center;gap:8px}
-.status{color:var(--accent);min-height:1.2em;margin-top:8px}
-.players{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 14px}
-.chip{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.12);font-size:14px;white-space:nowrap}
-.chip.turn{background:var(--accent);color:#222}
-.chip.target{outline:2px dashed var(--accent)}
-.chip.out{opacity:.5;text-decoration:line-through}
-.cards{display:flex;flex-wrap:wrap;gap:6px}
-.card{width:46px;height:66px;border-radius:7px;background:var(--card);color:var(--blk);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-weight:700;font-size:17px;box-shadow:0 2px 4px rgba(0,0,0,.4);line-height:1;user-select:none}
-.card .s{font-size:22px}
+:root{--bg1:#f7c49a;--bg2:#e2602a;--ink:#fff;--plate2:#0f5c12;--gold:#f5c518;--gold2:#e0a400;--red:#d32f2f;--blk:#151515;--cw:64px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:linear-gradient(180deg,var(--bg1),var(--bg2));background-attachment:fixed;color:var(--ink);min-height:100vh;overflow-x:hidden}
+#app{max-width:720px;margin:0 auto;position:relative}
+.page{padding:20px 16px 40px}
+h1{margin:12px 0 4px;font-size:34px;text-shadow:0 2px 0 rgba(0,0,0,.2)}
+.sub{margin:0 0 18px;opacity:.95}
+.box{background:rgba(90,30,0,.28);border-radius:16px;padding:16px;margin-bottom:14px}
+label{font-size:14px;opacity:.95}
+input{font:inherit;padding:12px;border-radius:12px;border:none;width:100%;margin:6px 0 10px;color:#222}
+button{font:inherit;font-weight:700;padding:12px 16px;border-radius:999px;border:2px solid #b07800;background:linear-gradient(#ffe57a,var(--gold) 55%,var(--gold2));color:#3a2600;cursor:pointer;width:100%;box-shadow:0 3px 0 #9a6a00}
+button.sec{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);color:#fff;box-shadow:none}
+button:disabled{opacity:.45;cursor:default}
+.status{color:#fff3b0;min-height:1.2em;margin-top:8px;font-weight:600}
+.note{margin:0 0 10px}
+.lobbyp{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 14px}
+.lp{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.18);border-radius:999px;padding:3px 12px 3px 3px;font-weight:600}
+.lp .av{width:32px;height:32px;font-size:18px;border-width:2px;box-shadow:none}
+.table{position:relative;height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+.wm{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);font-size:min(78vw,440px);line-height:1;color:rgba(130,40,0,.14);pointer-events:none}
+.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:10px 10px 0;position:relative;z-index:2}
+.roomchip{background:rgba(90,30,0,.32);padding:6px 12px;border-radius:999px;font-weight:700;font-size:14px;white-space:nowrap}
+.rbtns{display:flex;gap:8px}
+.rb{width:46px;height:46px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 0 #9a6a00,inset 0 2px 3px rgba(255,255,255,.7)}
+.rb svg{width:24px;height:24px;fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 1px rgba(0,0,0,.45))}
+.arena{position:relative;flex:1;min-height:180px}
+.seat{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;width:100px;z-index:1}
+.av{width:58px;height:58px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff8ea,#f1c08a);display:flex;align-items:center;justify-content:center;font-size:34px;box-shadow:0 3px 6px rgba(0,0,0,.3);border:3px solid #fff}
+.plate{margin-top:-6px;width:100%;border:2px solid var(--gold);border-radius:8px;overflow:hidden;box-shadow:0 2px 4px rgba(0,0,0,.35)}
+.plate .nm{background:linear-gradient(#2fa12f,var(--plate2));color:#ffe14d;font-weight:800;text-align:center;padding:3px 4px;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 0 #000}
+.plate .ct{background:#5d5a3a;color:#ffe14d;font-weight:800;display:flex;align-items:center;justify-content:space-between;padding:2px 8px;font-size:16px}
+.mini{width:12px;height:17px;border-radius:2px;background:repeating-linear-gradient(45deg,#b71c1c 0 3px,#8e1414 3px 6px);border:1.5px solid #fff;display:inline-block}
+.seat.sm{width:78px}.seat.sm .av{width:44px;height:44px;font-size:24px}.seat.sm .plate .nm{font-size:12px}.seat.sm .plate .ct{font-size:13px}
+.seat.turn .plate{border-color:#fff;box-shadow:0 0 0 3px var(--gold),0 0 14px 4px rgba(255,224,77,.9)}
+.seat.target .av{outline:3px dashed #fff;outline-offset:3px}
+.seat.out{filter:grayscale(1);opacity:.55}
+.center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:46%;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center}
+.center .note{margin:0;font-size:14px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.45)}
+.fan{display:flex;justify-content:center;padding:0 8px}
+.pick{padding:0 0 4px;position:relative;z-index:1}
+.card{position:relative;flex:none;width:var(--cw);height:calc(var(--cw)*1.42);border-radius:8px;background:#fff;color:var(--blk);box-shadow:0 2px 5px rgba(0,0,0,.35);user-select:none}
 .card.red{color:var(--red)}
+.card .ci{position:absolute;top:3px;left:4px;font-weight:700;line-height:.92;text-align:center;font-size:calc(var(--cw)*.3)}
+.card .ci.br{top:auto;left:auto;bottom:3px;right:4px;transform:rotate(180deg)}
+.card .cc{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:calc(var(--cw)*.6)}
+.card .cc.face{font-weight:800;font-size:calc(var(--cw)*.46)}
+.card.ov .cc,.card.ov .ci.br{display:none}
 .card.back{background:repeating-linear-gradient(45deg,#b71c1c 0 6px,#8e1414 6px 12px);border:3px solid #fff}
-.card.pick{cursor:pointer;transition:transform .1s}
-.card.pick:hover,.card.pick:active{transform:translateY(-8px)}
-.msg{font-size:18px;font-weight:600;margin:0 0 10px}
-.note{margin:0 0 10px;opacity:.9}
-.log{font-size:14px;opacity:.85;margin:0;padding-left:18px}
-.big{font-size:22px;text-align:center;font-weight:700}
+.card.tap{cursor:pointer;transition:transform .12s}
+.card.tap:hover,.card.tap:active{transform:translateY(-12px)}
+.card.new{transform:translateY(-12px);box-shadow:0 0 0 3px var(--gold),0 4px 10px rgba(0,0,0,.4)}
+.bar{display:flex;align-items:center;gap:8px;padding:6px 8px 0;position:relative;z-index:1}
+.count{border:2px solid var(--gold);border-radius:8px;background:#5d5a3a;color:#ffe14d;font-weight:800;padding:4px 10px;font-size:18px;display:flex;align-items:center;gap:8px}
+.pill{flex:1;min-width:0;text-align:center;background:linear-gradient(#fffbea,#efe2b0);color:#2b2100;border:2px solid #6b5520;border-radius:999px;padding:8px 12px;font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill.go{background:linear-gradient(#ffe57a,var(--gold));animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 4px rgba(255,255,255,.7)}}
+.hand{padding:16px 0 calc(10px + env(safe-area-inset-bottom));min-height:40px}
+.over{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(86%,360px);background:rgba(70,22,0,.85);border:2px solid var(--gold);border-radius:18px;padding:18px;text-align:center;z-index:3}
+.over .big{font-size:22px;font-weight:800;margin:8px 0 14px}
+.logp{position:absolute;right:10px;top:64px;width:min(86%,340px);max-height:50%;overflow:auto;background:rgba(45,15,0,.9);border-radius:14px;padding:10px 12px;z-index:4;font-size:14px}
+.logp ul{margin:0;padding-left:18px}
+.toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:rgba(45,15,0,.9);padding:8px 14px;border-radius:999px;font-weight:700;z-index:9}
 </style>
 </head>
 <body>
@@ -285,14 +317,64 @@ function newGame(){
 window.addEventListener('beforeunload', e => { if (isHost && G && G.players.length > 1){ e.preventDefault(); e.returnValue = ''; } });
 
 // ---------- UI ----------
+let showLog = false;
+const AVATARS = ['🦊','🐻','🐼','🐸','🦁','🐯','🐵','🐨','🐷','🐮'];
+const avatar = p => p.bot ? '🤖' : AVATARS[[...p.name].reduce((a,c) => a + c.codePointAt(0), 0) % AVATARS.length];
+const rankTxt = r => r === 'J' ? 'B' : r;
+const sameCard = (a,b) => a && b && a.r === b.r && a.s === b.s;
+const ICON = {
+  share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6" fill="#fff"/><circle cx="6" cy="12" r="2.6" fill="#fff"/><circle cx="18" cy="19" r="2.6" fill="#fff"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/></svg>',
+  shuffle: '<svg viewBox="0 0 24 24"><path d="M3 7h3c5 0 7 10 12 10h3M3 17h3c2 0 3.5-1.5 4.8-3.5M13.2 10.5C14.5 8.5 16 7 18 7h3M18 4l3 3-3 3M18 14l3 3-3 3"/></svg>',
+  again: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>',
+  log: '<svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></svg>'
+};
+
 function setStatus(s){ statusMsg = s; const el = document.getElementById('status'); if (el) el.textContent = s; }
+function flash(s){ const t = document.createElement('div'); t.className = 'toast'; t.textContent = s; document.body.appendChild(t); setTimeout(() => t.remove(), 1800); }
 const shareLink = code => location.origin + location.pathname + '#' + code;
-const cardHtml = c => `<div class="card ${isRed(c)?'red':''}"><span>${c.r==='J'?'B':esc(c.r)}</span><span class="s">${c.s}</span></div>`;
+
+function shareRoom(){
+  const url = shareLink(view.code);
+  if (navigator.share) navigator.share({ title:'Spar Bonde', text:'Spil Spar Bonde med mig', url }).catch(() => {});
+  else if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => flash('Link kopieret'));
+}
+
+function cardHtml(c, cls = '', style = ''){
+  const r = esc(rankTxt(c.r)), face = c.r === 'J' || c.r === 'Q' || c.r === 'K';
+  return `<div class="card ${isRed(c) ? 'red' : ''} ${cls}" style="${style}"><div class="ci">${r}<br>${c.s}</div>` +
+    `<div class="cc ${face ? 'face' : ''}">${face ? r + c.s : c.s}</div><div class="ci br">${r}<br>${c.s}</div></div>`;
+}
+
+// n kort side om side: overlappet så de fylder højst bredden (som en hånd på bordet);
+// et kort der er dækket til mere end halvdelen viser kun hjørnet
+function fan(n, cw, item){
+  const width = Math.min(window.innerWidth || 380, 720) - 16;
+  const step = n > 1 ? Math.max(12, Math.min(cw * 0.72, (width - cw) / (n - 1))) : 0;
+  let h = '';
+  for (let i = 0; i < n; i++) h += item(i, `--cw:${cw}px;${i ? `margin-left:${step - cw}px` : ''}`, i < n - 1 && step < cw * 0.7);
+  return `<div class="fan">${h}</div>`;
+}
+
+// modspillerne rundt om bordet: den du trækker fra sidder til venstre, resten med uret over toppen
+function seatsHtml(v){
+  const P = v.players, n = P.length, m = n - 1, playing = v.phase === 'playing';
+  let h = '';
+  for (let k = 1; k < n; k++){
+    const i = (v.me + k) % n, p = P[i];
+    const a = (m === 1 ? 90 : 180 - (k - 1) * 180 / (m - 1)) * Math.PI / 180;
+    const x = 50 + 36 * Math.cos(a), y = 56 - 44 * Math.sin(a);
+    const cls = [m > 4 ? 'sm' : '', playing && i === v.turn ? 'turn' : '', playing && i === v.target ? 'target' : '', p.out ? 'out' : ''].join(' ');
+    h += `<div class="seat ${cls}" style="left:${x}%;top:${y}%"><div class="av">${avatar(p)}</div>` +
+      `<div class="plate"><div class="nm">${esc(p.name)}${p.online ? '' : ' ⚠️'}</div>` +
+      `<div class="ct"><span class="mini"></span><span>${p.out ? 'Ude' : p.count}</span></div></div></div>`;
+  }
+  return h;
+}
 
 function renderLobby(){
   const hashCode = (location.hash.slice(1) || '').toUpperCase().slice(0,4);
-  app.innerHTML = `
-    <h1>Spar Bonde</h1>
+  app.innerHTML = `<div class="page">
+    <h1>♠ Spar Bonde</h1>
     <p class="sub">Træk kort, smid par – undgå spar bonde.</p>
     <div class="box">
       <label>Dit navn</label>
@@ -305,54 +387,68 @@ function renderLobby(){
       <button class="${hashCode ? '' : 'sec'}" onclick="joinRoom()">Deltag</button>
       ${hashCode ? '<button class="sec" style="margin-top:8px" onclick="location.hash=\'\';renderLobby()">Opret eget rum i stedet</button>' : ''}
       <div class="status" id="status">${esc(statusMsg)}</div>
-    </div>`;
+    </div></div>`;
+}
+
+function renderRoom(v){
+  const P = v.players;
+  let h = `<div class="page"><h1>♠ Spar Bonde</h1><div class="box"><p class="note">Del koden <b>${esc(v.code)}</b> eller linket:</p>
+    <input readonly value="${esc(shareLink(v.code))}" onclick="this.select()">
+    <button class="sec" style="margin-bottom:6px" onclick="shareRoom()">Del link</button>
+    <div class="lobbyp">${P.map((p,i) => `<span class="lp"><span class="av">${avatar(p)}</span>${esc(p.name)}${i === v.me ? ' (dig)' : ''}</span>`).join('')}</div>`;
+  h += v.isHost
+    ? `<button class="sec" style="margin-bottom:8px" onclick="send({t:'bot'})" ${P.length >= 8 ? 'disabled' : ''}>🤖 Tilføj computer</button>` +
+      (P.some(p => p.bot) ? `<button class="sec" style="margin-bottom:8px" onclick="send({t:'nobots'})">Fjern computere</button>` : '') +
+      `<button onclick="send({t:'start'})" ${P.length < 2 ? 'disabled' : ''}>Start spil (${P.length} spillere)</button>`
+    : '<p class="note">Venter på at værten starter…</p>';
+  h += `</div><div class="box"><ul style="margin:0;padding-left:18px">${v.log.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div></div>`;
+  app.innerHTML = h;
 }
 
 function render(){
   if (!view){ renderLobby(); return; }
-  const v = view, P = v.players, me = v.me, playing = v.phase === 'playing';
-  let h = `<div class="top"><h1>Spar Bonde</h1><span class="chip">Rum ${esc(v.code)}</span></div>`;
-  h += '<div class="players">' + P.map((p,i) =>
-    `<span class="chip ${playing && i===v.turn ? 'turn':''} ${playing && i===v.target ? 'target':''} ${p.out ? 'out':''}">` +
-    `${p.bot ? '🤖 ' : ''}${esc(p.name)}${i===me ? ' (dig)':''}${v.phase!=='lobby' ? ' · ' + p.count : ''}${p.online ? '' : ' ⚠️'}</span>`).join('') + '</div>';
+  const v = view;
+  if (v.phase === 'lobby'){ renderRoom(v); return; }
+  const P = v.players, me = v.me, playing = v.phase === 'playing', tgt = P[v.target];
+  const myTurn = playing && v.turn === me;
 
-  if (v.phase === 'lobby'){
-    h += `<div class="box"><p class="note">Del koden <b>${esc(v.code)}</b> eller linket:</p>
-      <input readonly value="${esc(shareLink(v.code))}" onclick="this.select()">`;
-    h += v.isHost
-      ? `<button class="sec" style="margin-bottom:8px" onclick="send({t:'bot'})" ${P.length >= 8 ? 'disabled' : ''}>🤖 Tilføj computer</button>` +
-        (P.some(p => p.bot) ? `<button class="sec" style="margin-bottom:8px" onclick="send({t:'nobots'})">Fjern computere</button>` : '') +
-        `<button onclick="send({t:'start'})" ${P.length < 2 ? 'disabled' : ''}>Start spil (${P.length} spillere)</button>`
-      : '<p class="note">Venter på at værten starter…</p>';
-    h += '</div>';
-  } else {
-    if (v.phase === 'over'){
-      h += `<div class="box big">${v.loser === me ? '🃏 Du sidder med spar bonde!' : '🎉 ' + esc(P[v.loser]?.name || '?') + ' sidder med spar bonde!'}</div>`;
-    } else {
-      const tgt = P[v.target];
-      if (v.turn === me){
-        h += `<div class="box"><div class="msg">Din tur – træk et kort fra ${esc(tgt.name)}</div><div class="cards">` +
-          Array.from({ length: tgt.count }, (_, i) => `<div class="card back pick" onclick="send({t:'draw',index:${i}})"></div>`).join('') +
-          '</div></div>';
-      } else if (v.target === me){
-        h += `<div class="box"><div class="msg">${esc(P[v.turn].name)} trækker fra dig</div><p class="note">Bland dine kort, så de ikke kan regne ud hvor spar bonde sidder.</p></div>`;
-      } else {
-        h += `<div class="box"><div class="msg">${esc(P[v.turn].name)} trækker fra ${esc(tgt.name)}</div></div>`;
-      }
-    }
-    if (v.drew) h += `<p class="note">Du trak ${cardTxt(v.drew)}</p>`;
-    if (v.lost) h += `<p class="note">${esc(v.lost.by)} trak din ${cardTxt(v.lost.card)}</p>`;
-    h += `<div class="box"><div class="msg">Dine kort (${v.hand.length})</div>`;
-    h += v.hand.length ? `<div class="cards">${v.hand.map(cardHtml).join('')}</div>`
-                       : (playing ? '<p class="note">Du er ude – godt gået! 🎉</p>' : '');
-    if (playing && v.hand.length > 1) h += `<div style="margin-top:12px"><button class="sec" onclick="send({t:'shuffle'})">Bland mine kort</button></div>`;
-    h += '</div>';
-    if (v.isHost) h += `<button class="${v.phase === 'over' ? '' : 'sec'}" onclick="newGame()">Nyt spil</button>`;
+  let pill = '', go = false;
+  if (!playing) pill = 'Spillet er slut';
+  else if (P[me].out) pill = 'Du er ude – godt gået! 🎉';
+  else if (myTurn){ pill = `Din tur – træk fra ${esc(tgt.name)}`; go = true; }
+  else if (v.target === me) pill = `${esc(P[v.turn].name)} trækker fra dig`;
+  else pill = `${esc(P[v.turn].name)} trækker fra ${esc(tgt.name)}`;
+
+  let h = '<div class="table"><div class="wm">♠</div><div class="topbar">' +
+    `<span class="roomchip">${v.code === 'DEMO' ? 'Øvespil' : 'Rum ' + esc(v.code)}</span><div class="rbtns">` +
+    (v.code === 'DEMO' ? '' : `<button class="rb" title="Del link" onclick="shareRoom()">${ICON.share}</button>`) +
+    (playing && v.hand.length > 1 ? `<button class="rb" title="Bland mine kort" onclick="send({t:'shuffle'})">${ICON.shuffle}</button>` : '') +
+    (v.isHost ? `<button class="rb" title="Nyt spil" onclick="newGame()">${ICON.again}</button>` : '') +
+    `<button class="rb" title="Log" onclick="showLog=!showLog;render()">${ICON.log}</button></div></div>`;
+
+  h += '<div class="arena">' + seatsHtml(v) + '<div class="center">';
+  if (v.drew) h += `<p class="note">Du trak</p>${cardHtml(v.drew, '', '--cw:54px')}`;
+  else if (v.lost) h += `<p class="note">${esc(v.lost.by)} trak din</p>${cardHtml(v.lost.card, '', '--cw:54px')}`;
+  h += '</div>';
+  if (!playing){
+    const lost = v.loser === me;
+    h += `<div class="over"><div class="av" style="margin:0 auto">${v.loser !== null ? avatar(P[v.loser]) : '🃏'}</div>` +
+      `<div class="big">${lost ? '🃏 Du sidder med spar bonde!' : '🎉 ' + esc(P[v.loser]?.name || '?') + ' sidder med spar bonde!'}</div>` +
+      (v.isHost ? '<button onclick="newGame()">Nyt spil</button>' : '<p class="note">Venter på at værten starter et nyt spil…</p>') + '</div>';
   }
-  h += `<div class="box" style="margin-top:14px"><ul class="log">${v.log.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>`;
-  app.innerHTML = h;
+  h += '</div>';
+
+  if (myTurn) h += '<div class="pick">' + fan(tgt.count, 50, (i, st) => `<div class="card back tap" style="${st}" onclick="send({t:'draw',index:${i}})"></div>`) + '</div>';
+
+  h += `<div class="bar"><div class="count"><span class="mini"></span>${v.hand.length}</div><div class="pill ${go ? 'go' : ''}">${pill}</div></div>`;
+  const cw = Math.round(Math.max(56, Math.min(92, (Math.min(window.innerWidth || 380, 720) - 16) / 5.6)));
+  h += '<div class="hand">' + (v.hand.length ? fan(v.hand.length, cw, (i, st, ov) => cardHtml(v.hand[i], (sameCard(v.hand[i], v.drew) ? 'new ' : '') + (ov ? 'ov' : ''), st)) : '') + '</div>';
+
+  if (showLog) h += `<div class="logp" onclick="showLog=false;render()"><ul>${v.log.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>`;
+  app.innerHTML = h + '</div>';
 }
 
+window.addEventListener('resize', () => { if (view && view.phase !== 'lobby') render(); });
 render();
 </script>
 </body>
