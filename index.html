@@ -44,7 +44,7 @@ button:disabled{opacity:.45;cursor:default}
 .seat.turn .plate{border-color:#fff;box-shadow:0 0 0 3px var(--gold),0 0 14px 4px rgba(255,224,77,.9)}
 .seat.target .av{outline:3px dashed #fff;outline-offset:3px}
 .seat.out{filter:grayscale(1);opacity:.55}
-.center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:46%;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center}
+.center{position:absolute;left:50%;top:64%;transform:translate(-50%,-50%);width:46%;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center}
 .center .note{margin:0;font-size:14px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.45)}
 .fan{display:flex;justify-content:center;padding:0 8px}
 .pick{padding:0 0 4px;position:relative;z-index:1}
@@ -69,13 +69,17 @@ button:disabled{opacity:.45;cursor:default}
 .over .big{font-size:22px;font-weight:800;margin:8px 0 14px}
 .logp{position:absolute;right:10px;top:64px;width:min(86%,340px);max-height:50%;overflow:auto;background:rgba(45,15,0,.9);border-radius:14px;padding:10px 12px;z-index:4;font-size:14px}
 .logp ul{margin:0;padding-left:18px}
+.pile{display:flex;flex-wrap:wrap;justify-content:center;gap:3px;margin-top:5px;width:100%}
+.mypile{display:flex;flex-wrap:wrap;justify-content:center;gap:3px;padding:0 8px 4px;position:relative;z-index:1}
+.pc{background:#fff;color:var(--blk);border-radius:6px;font-weight:800;font-size:16px;padding:4px 5px;box-shadow:0 1px 2px rgba(0,0,0,.35);line-height:1;white-space:nowrap}
+.pc small{font-size:13px;margin-left:1px}.pc.red{color:var(--red)}
+.pc.new{outline:2px solid var(--gold);box-shadow:0 0 8px 3px rgba(255,224,77,.95)}
+.seat.sm .pc{font-size:12px;padding:2px 3px}.seat.sm .pc small{font-size:10px}
 .mc{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:40px;padding:0 3px;border-radius:5px;background:#fff;color:var(--blk);font-weight:800;font-size:14px;box-shadow:0 1px 3px rgba(0,0,0,.35);vertical-align:middle}
 .mc.red{color:var(--red)}
-.thr{display:flex;gap:3px;margin-top:4px}
 .seat.sm .mc{min-width:24px;height:32px;font-size:12px}
 .center .note .mc{height:28px;min-width:26px;font-size:13px;margin-left:4px}
 .pair{display:flex;gap:6px}
-.bar .mc{height:32px;min-width:26px;font-size:13px}
 .toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:rgba(45,15,0,.9);padding:8px 14px;border-radius:999px;font-weight:700;z-index:9}
 </style>
 </head>
@@ -111,6 +115,7 @@ function removePairs(p){
   const rm = new Set(), removed = [];
   for (const k in groups) if (groups[k].length === 2) { groups[k].forEach(c => rm.add(c)); removed.push(...groups[k]); }
   p.hand = p.hand.filter(c => !rm.has(c));
+  (p.thrown = p.thrown || []).push(...removed);   // til bordet: alt spilleren har smidt, par for par
   return removed;
 }
 
@@ -137,7 +142,7 @@ function startGame(){
   const deck = [];
   for (const s of SUITS) for (const r of RANKS) if (!(r==='J' && s==='♣')) deck.push({r,s});
   shuffle(deck);
-  G.players.forEach(p => { p.hand = []; p.out = false; });
+  G.players.forEach(p => { p.hand = []; p.out = false; p.thrown = []; });
   deck.forEach((c,i) => G.players[i % G.players.length].hand.push(c));
   G.log = []; G.loser = null; G.lastDraw = null; G.phase = 'playing';
   G.players.forEach(p => { removePairs(p); shuffle(p.hand); });
@@ -191,7 +196,7 @@ function viewFor(i){
 // ---------- Computerspillere (kun værten) ----------
 // En computer er en spiller uden forbindelse; når det er dens tur, trækker den et tilfældigt kort.
 let botTimer = null;
-const BOT_MS = 2500;   // computerens betænkningstid: tid til at se hvert træk
+const BOT_MS = 3500;   // computerens betænkningstid: tid til at se hvert træk
 
 function addBot(){
   if (G.phase !== 'lobby' || G.players.length >= 8) return;
@@ -228,31 +233,30 @@ function scheduleBot(){
   }, BOT_MS);
 }
 
-// ---------- Bordet (kun værten): hvad hver spiller sidst trak og smed ----------
-// Motoren gemmer kun det seneste træk. Bliver det trukne kort ikke i hånden, dannede det et par
-// med sin makker: samme værdi, den anden kulør i samme farve.
-const PARTNER = { '♠':'♣', '♣':'♠', '♥':'♦', '♦':'♥' };
+// ---------- Bordet (kun værten): hvad der ligger på bordet og hvem der sidst trak ----------
 let table = null, seenDraw = null, seenLog = null;
 
 function noteTable(){
-  if (G.log !== seenLog){ seenLog = G.log; table = { throws:{}, newest:null, drew:{}, lost:{} }; }   // nyt spil = ny log
+  if (G.log !== seenLog){ seenLog = G.log; table = { newest:null, drew:{}, lost:{} }; }   // nyt spil = ny log
   const ld = G.lastDraw;
   if (!ld || ld === seenDraw) return;
   seenDraw = ld;
   table.drew[ld.to] = ld.card;
   table.lost[ld.from] = { card: ld.card, by: G.players[ld.to].name };
-  if (!G.players[ld.to].hand.includes(ld.card)){
-    const pair = [{ r: ld.card.r, s: PARTNER[ld.card.s] }, ld.card];
-    table.throws[ld.to] = pair;
-    table.newest = { by: ld.to, cards: pair };
-  }
+  const th = G.players[ld.to].thrown || [];
+  if (th.includes(ld.card)) table.newest = { by: ld.to, cards: th.slice(-2) };
+}
+
+// en spillers bunke på bordet: parrene i den rækkefølge de blev smidt
+function pilesOf(){
+  return G.players.map(p => { const t = p.thrown || [], out = []; for (let k = 0; k + 1 < t.length; k += 2) out.push([t[k], t[k + 1]]); return out; });
 }
 
 function broadcast(){
   noteTable();
   G.players.forEach((p,i) => {
     const v = viewFor(i);
-    v.throws = table.throws; v.newest = table.newest;
+    v.piles = pilesOf(); v.newest = table.newest;
     v.drew = table.drew[i] || null; v.lost = table.lost[i] || null;
     if (i === 0){ view = v; render(); }
     else if (p.conn && p.online){ try { p.conn.send(v); } catch(e) {} }
@@ -370,6 +374,9 @@ function shareRoom(){
   else if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => flash('Link kopieret'));
 }
 
+const isNewest = (v, pair) => !!v.newest && sameCard(pair[0], v.newest.cards[0]) && sameCard(pair[1], v.newest.cards[1]);
+const pileHtml = (v, i) => ((v.piles || [])[i] || []).map(pr =>
+  `<span class="pc ${isRed(pr[0]) ? 'red' : ''} ${isNewest(v, pr) ? 'new' : ''}">${esc(rankTxt(pr[0].r))}<small>${pr[0].s}${pr[1].s}</small></span>`).join('');
 const miniCard = c => `<span class="mc ${isRed(c) ? 'red' : ''}">${esc(rankTxt(c.r))}${c.s}</span>`;
 
 function cardHtml(c, cls = '', style = ''){
@@ -395,12 +402,12 @@ function seatsHtml(v){
   for (let k = 1; k < n; k++){
     const i = (v.me + k) % n, p = P[i];
     const a = (m === 1 ? 90 : 180 - (k - 1) * 180 / (m - 1)) * Math.PI / 180;
-    const x = 50 + 36 * Math.cos(a), y = 56 - 44 * Math.sin(a);
+    const x = 50 + 36 * Math.cos(a), y = 40 - 30 * Math.sin(a);
     const cls = [m > 4 ? 'sm' : '', playing && i === v.turn ? 'turn' : '', playing && i === v.target ? 'target' : '', p.out ? 'out' : ''].join(' ');
     h += `<div class="seat ${cls}" style="left:${x}%;top:${y}%"><div class="av">${avatar(p)}</div>` +
       `<div class="plate"><div class="nm">${esc(p.name)}${p.online ? '' : ' ⚠️'}</div>` +
       `<div class="ct"><span class="mini"></span><span>${p.out ? 'Ude' : p.count}</span></div></div>` +
-      (v.throws && v.throws[i] ? `<div class="thr">${v.throws[i].map(miniCard).join('')}</div>` : '') + '</div>';
+      `<div class="pile">${pileHtml(v, i)}</div></div>`;
   }
   return h;
 }
@@ -476,9 +483,8 @@ function render(){
 
   if (myTurn) h += '<div class="pick">' + fan(tgt.count, 50, (i, st) => `<div class="card back tap" style="${st}" onclick="send({t:'draw',index:${i}})"></div>`) + '</div>';
 
-  h += `<div class="bar"><div class="count"><span class="mini"></span>${v.hand.length}</div>` +
-    (v.throws && v.throws[me] ? `<div class="thr" style="margin:0">${v.throws[me].map(miniCard).join('')}</div>` : '') +
-    `<div class="pill ${go ? 'go' : ''}">${pill}</div></div>`;
+  if ((v.piles || [])[me]?.length) h += `<div class="mypile">${pileHtml(v, me)}</div>`;
+  h += `<div class="bar"><div class="count"><span class="mini"></span>${v.hand.length}</div><div class="pill ${go ? 'go' : ''}">${pill}</div></div>`;
   const cw = Math.round(Math.max(56, Math.min(92, (Math.min(window.innerWidth || 380, 720) - 16) / 5.6)));
   h += '<div class="hand">' + (v.hand.length ? fan(v.hand.length, cw, (i, st, ov) => cardHtml(v.hand[i], (sameCard(v.hand[i], v.drew) ? 'new ' : '') + (ov ? 'ov' : ''), st)) : '') + '</div>';
 
