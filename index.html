@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b3d26">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Spar Bonde</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root{--felt2:#0b3d26;--ink:#f5f5f0;--card:#fff;--red:#c62828;--blk:#1a1a1a;--accent:#ffd54f}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:radial-gradient(circle at 50% 0,#17734a,var(--felt2) 70%);background-attachment:fixed;color:var(--ink);min-height:100vh}
+#app{max-width:720px;margin:0 auto;padding:16px 16px 40px}
+h1{margin:8px 0 4px;font-size:28px}
+.sub{opacity:.8;margin:0 0 20px}
+.box{background:rgba(0,0,0,.25);border-radius:14px;padding:16px;margin-bottom:14px}
+label{font-size:14px;opacity:.85}
+input{font:inherit;padding:12px;border-radius:10px;border:none;width:100%;margin:6px 0 10px}
+button{font:inherit;font-weight:600;padding:12px 16px;border-radius:10px;border:none;background:var(--accent);color:#222;cursor:pointer;width:100%}
+button.sec{background:rgba(255,255,255,.15);color:var(--ink)}
+button:disabled{opacity:.4;cursor:default}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.status{color:var(--accent);min-height:1.2em;margin-top:8px}
+.players{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 14px}
+.chip{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.12);font-size:14px;white-space:nowrap}
+.chip.turn{background:var(--accent);color:#222}
+.chip.target{outline:2px dashed var(--accent)}
+.chip.out{opacity:.5;text-decoration:line-through}
+.cards{display:flex;flex-wrap:wrap;gap:6px}
+.card{width:46px;height:66px;border-radius:7px;background:var(--card);color:var(--blk);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-weight:700;font-size:17px;box-shadow:0 2px 4px rgba(0,0,0,.4);line-height:1;user-select:none}
+.card .s{font-size:22px}
+.card.red{color:var(--red)}
+.card.back{background:repeating-linear-gradient(45deg,#b71c1c 0 6px,#8e1414 6px 12px);border:3px solid #fff}
+.card.pick{cursor:pointer;transition:transform .1s}
+.card.pick:hover,.card.pick:active{transform:translateY(-8px)}
+.msg{font-size:18px;font-weight:600;margin:0 0 10px}
+.note{margin:0 0 10px;opacity:.9}
+.log{font-size:14px;opacity:.85;margin:0;padding-left:18px}
+.big{font-size:22px;text-align:center;font-weight:700}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ---------- Fælles ----------
+const PREFIX = 'sparbonde-poc-';
+const RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const SUITS = ['♠','♥','♦','♣'];
+const app = document.getElementById('app');
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const isRed = c => c.s === '♥' || c.s === '♦';
+const cardTxt = c => (c.r === 'J' ? 'B' : c.r) + c.s;   // dansk: B for bonde
+const lsGet = k => { try { return localStorage.getItem(k); } catch(e) { return null; } };
+const lsSet = (k,v) => { try { localStorage.setItem(k,v); } catch(e) {} };
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function code4(){ const a='ABCDEFGHJKLMNPQRSTUVWXYZ'; let s=''; for(let i=0;i<4;i++) s+=a[Math.floor(Math.random()*a.length)]; return s; }
+
+let peer = null, isHost = false, hostConn = null, roomCode = '';
+let G = null;          // kun værten: fuld spiltilstand
+let view = null;       // det denne spiller må se
+let statusMsg = '';
+
+// ---------- ENGINE START (kører kun hos værten) ----------
+// Par = samme værdi + samme farve (rød/sort). Klør bonde er fjernet,
+// så spar bonde er det eneste kort der aldrig kan parres.
+const pairKey = c => c.r + (isRed(c) ? 'R' : 'S');
+
+function removePairs(p){
+  const groups = {};
+  p.hand.forEach(c => (groups[pairKey(c)] = groups[pairKey(c)] || []).push(c));
+  const rm = new Set(), removed = [];
+  for (const k in groups) if (groups[k].length === 2) { groups[k].forEach(c => rm.add(c)); removed.push(...groups[k]); }
+  p.hand = p.hand.filter(c => !rm.has(c));
+  return removed;
+}
+
+function nextActive(i){
+  const n = G.players.length;
+  for (let k=1; k<=n; k++){ const j=(i+k)%n; if (!G.players[j].out) return j; }
+  return i;
+}
+
+function addLog(s){ G.log.push(s); if (G.log.length > 30) G.log.shift(); }
+
+function checkEnd(){
+  const active = G.players.map((p,i)=>i).filter(i => !G.players[i].out);
+  if (active.length > 1) return false;
+  G.phase = 'over';
+  G.loser = active.length ? active[0] : null;
+  if (G.loser !== null) addLog(`${G.players[G.loser].name} sidder med spar bonde! 🃏`);
+  return true;
+}
+
+function startGame(){
+  G.players = G.players.filter(p => p.online);
+  if (G.players.length < 2) return;
+  const deck = [];
+  for (const s of SUITS) for (const r of RANKS) if (!(r==='J' && s==='♣')) deck.push({r,s});
+  shuffle(deck);
+  G.players.forEach(p => { p.hand = []; p.out = false; });
+  deck.forEach((c,i) => G.players[i % G.players.length].hand.push(c));
+  G.log = []; G.loser = null; G.lastDraw = null; G.phase = 'playing';
+  G.players.forEach(p => { removePairs(p); shuffle(p.hand); });
+  addLog('Kortene er givet og alle par er smidt');
+  G.players.forEach(p => { if (!p.hand.length){ p.out = true; addLog(`${p.name} er ude! 🎉`); } });
+  G.turn = Math.floor(Math.random() * G.players.length);
+  if (G.players[G.turn].out) G.turn = nextActive(G.turn);
+  checkEnd();
+  broadcast();
+}
+
+function doDraw(p, index){
+  if (G.phase !== 'playing' || p !== G.turn) return;
+  const t = nextActive(p);
+  if (t === p) return;
+  const pp = G.players[p], tp = G.players[t];
+  index = Math.max(0, Math.min(tp.hand.length - 1, index | 0));
+  const [card] = tp.hand.splice(index, 1);
+  pp.hand.push(card);
+  const removed = removePairs(pp);
+  addLog(`${pp.name} trak fra ${tp.name}` + (removed.length ? ` og smed ${removed.map(cardTxt).join(' ')}` : ''));
+  G.lastDraw = { to: p, from: t, card };
+  if (!tp.hand.length && !tp.out){ tp.out = true; addLog(`${tp.name} er ude! 🎉`); }
+  if (!pp.hand.length && !pp.out){ pp.out = true; addLog(`${pp.name} er ude! 🎉`); }
+  if (!checkEnd()) G.turn = nextActive(p);
+  broadcast();
+}
+
+function act(p, msg){
+  if (!msg || typeof msg !== 'object') return;
+  if (msg.t === 'draw') doDraw(p, msg.index);
+  else if (msg.t === 'shuffle' && G.phase === 'playing'){ shuffle(G.players[p].hand); broadcast(); }
+  else if (msg.t === 'start' && p === 0) startGame();
+}
+
+function viewFor(i){
+  const ld = G.lastDraw;
+  return {
+    t: 'state', me: i, isHost: i === 0, code: roomCode, phase: G.phase, turn: G.turn,
+    target: G.phase === 'playing' ? nextActive(G.turn) : -1,
+    players: G.players.map(p => ({ name: p.name, count: p.hand.length, out: p.out, online: p.online })),
+    hand: G.players[i].hand, log: G.log.slice(-8), loser: G.loser,
+    drew: ld && ld.to === i ? ld.card : null,
+    lost: ld && ld.from === i ? { card: ld.card, by: G.players[ld.to].name } : null
+  };
+}
+// ---------- ENGINE END ----------
+
+function broadcast(){
+  G.players.forEach((p,i) => {
+    const v = viewFor(i);
+    if (i === 0){ view = v; render(); }
+    else if (p.conn && p.online){ try { p.conn.send(v); } catch(e) {} }
+  });
+}
+
+// ---------- Netværk ----------
+function getName(){
+  const n = (document.getElementById('name')?.value || '').trim().slice(0,16);
+  if (!n){ setStatus('Skriv dit navn først'); return null; }
+  lsSet('sb_name', n);
+  return n;
+}
+
+function createRoom(){
+  const name = getName(); if (!name) return;
+  if (peer) peer.destroy();
+  isHost = true; roomCode = code4();
+  setStatus('Opretter rum…');
+  peer = new Peer(PREFIX + roomCode);
+  peer.on('open', () => {
+    G = { phase:'lobby', players:[{ id:'host', name, hand:[], out:false, conn:null, online:true }], turn:0, log:[], loser:null, lastDraw:null };
+    addLog(`${name} oprettede rummet`);
+    broadcast();
+  });
+  peer.on('connection', conn => {
+    conn.on('data', msg => onHostMsg(conn, msg));
+    conn.on('close', () => onHostClose(conn));
+    conn.on('error', () => onHostClose(conn));
+  });
+  peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id' && !G) createRoom();
+    else setStatus('Fejl: ' + e.type);
+  });
+}
+
+function onHostMsg(conn, msg){
+  if (msg && msg.t === 'join'){
+    if (G.players.some(p => p.conn === conn)) return;
+    if (G.phase !== 'lobby'){ conn.send({ t:'error', msg:'Spillet er allerede i gang' }); return; }
+    if (G.players.length >= 8){ conn.send({ t:'error', msg:'Rummet er fuldt (max 8)' }); return; }
+    const name = String(msg.name || 'Spiller').slice(0,16);
+    G.players.push({ id:conn.peer, name, hand:[], out:false, conn, online:true });
+    addLog(`${name} kom ind`);
+    broadcast();
+    return;
+  }
+  const p = G.players.findIndex(x => x.conn === conn);
+  if (p > 0) act(p, msg);
+}
+
+function onHostClose(conn){
+  const i = G.players.findIndex(x => x.conn === conn);
+  if (i < 1 || !G.players[i].online) return;
+  const p = G.players[i];
+  p.online = false;
+  if (G.phase === 'lobby'){ G.players.splice(i,1); addLog(`${p.name} gik`); }
+  else addLog(`${p.name} mistede forbindelsen`);
+  broadcast();
+}
+
+function joinRoom(){
+  const name = getName(); if (!name) return;
+  const code = (document.getElementById('code')?.value || '').trim().toUpperCase();
+  if (code.length !== 4){ setStatus('Koden skal være 4 bogstaver'); return; }
+  if (peer) peer.destroy();
+  isHost = false; roomCode = code;
+  setStatus('Forbinder…');
+  peer = new Peer();
+  peer.on('open', () => {
+    hostConn = peer.connect(PREFIX + code, { reliable: true });
+    hostConn.on('open', () => hostConn.send({ t:'join', name }));
+    hostConn.on('data', msg => {
+      if (msg.t === 'state'){ view = msg; render(); }
+      else if (msg.t === 'error'){ view = null; statusMsg = msg.msg; render(); }
+    });
+    hostConn.on('close', () => { view = null; statusMsg = 'Forbindelsen til værten er tabt'; render(); });
+  });
+  peer.on('error', e => setStatus(e.type === 'peer-unavailable' ? 'Rummet findes ikke' : 'Fejl: ' + e.type));
+}
+
+function send(msg){
+  if (isHost) act(0, msg);
+  else if (hostConn && hostConn.open) hostConn.send(msg);
+}
+
+function newGame(){
+  if (view.phase === 'over' || confirm('Start et nyt spil?')) send({ t:'start' });
+}
+
+window.addEventListener('beforeunload', e => { if (isHost && G && G.players.length > 1){ e.preventDefault(); e.returnValue = ''; } });
+
+// ---------- UI ----------
+function setStatus(s){ statusMsg = s; const el = document.getElementById('status'); if (el) el.textContent = s; }
+const shareLink = code => location.origin + location.pathname + '#' + code;
+const cardHtml = c => `<div class="card ${isRed(c)?'red':''}"><span>${c.r==='J'?'B':esc(c.r)}</span><span class="s">${c.s}</span></div>`;
+
+function renderLobby(){
+  const hashCode = (location.hash.slice(1) || '').toUpperCase().slice(0,4);
+  app.innerHTML = `
+    <h1>Spar Bonde</h1>
+    <p class="sub">Træk kort, smid par – undgå spar bonde.</p>
+    <div class="box">
+      <label>Dit navn</label>
+      <input id="name" maxlength="16" placeholder="Navn" value="${esc(lsGet('sb_name') || '')}">
+      ${hashCode ? '' : '<button onclick="createRoom()">Opret nyt rum</button>'}
+    </div>
+    <div class="box">
+      <label>Deltag med kode</label>
+      <input id="code" maxlength="4" placeholder="ABCD" style="text-transform:uppercase" value="${esc(hashCode)}">
+      <button class="${hashCode ? '' : 'sec'}" onclick="joinRoom()">Deltag</button>
+      ${hashCode ? '<button class="sec" style="margin-top:8px" onclick="location.hash=\'\';renderLobby()">Opret eget rum i stedet</button>' : ''}
+      <div class="status" id="status">${esc(statusMsg)}</div>
+    </div>`;
+}
+
+function render(){
+  if (!view){ renderLobby(); return; }
+  const v = view, P = v.players, me = v.me, playing = v.phase === 'playing';
+  let h = `<div class="top"><h1>Spar Bonde</h1><span class="chip">Rum ${esc(v.code)}</span></div>`;
+  h += '<div class="players">' + P.map((p,i) =>
+    `<span class="chip ${playing && i===v.turn ? 'turn':''} ${playing && i===v.target ? 'target':''} ${p.out ? 'out':''}">` +
+    `${esc(p.name)}${i===me ? ' (dig)':''}${v.phase!=='lobby' ? ' · ' + p.count : ''}${p.online ? '' : ' ⚠️'}</span>`).join('') + '</div>';
+
+  if (v.phase === 'lobby'){
+    h += `<div class="box"><p class="note">Del koden <b>${esc(v.code)}</b> eller linket:</p>
+      <input readonly value="${esc(shareLink(v.code))}" onclick="this.select()">`;
+    h += v.isHost
+      ? `<button onclick="send({t:'start'})" ${P.length < 2 ? 'disabled' : ''}>Start spil (${P.length} spillere)</button>`
+      : '<p class="note">Venter på at værten starter…</p>';
+    h += '</div>';
+  } else {
+    if (v.phase === 'over'){
+      h += `<div class="box big">${v.loser === me ? '🃏 Du sidder med spar bonde!' : '🎉 ' + esc(P[v.loser]?.name || '?') + ' sidder med spar bonde!'}</div>`;
+    } else {
+      const tgt = P[v.target];
+      if (v.turn === me){
+        h += `<div class="box"><div class="msg">Din tur – træk et kort fra ${esc(tgt.name)}</div><div class="cards">` +
+          Array.from({ length: tgt.count }, (_, i) => `<div class="card back pick" onclick="send({t:'draw',index:${i}})"></div>`).join('') +
+          '</div></div>';
+      } else if (v.target === me){
+        h += `<div class="box"><div class="msg">${esc(P[v.turn].name)} trækker fra dig</div><p class="note">Bland dine kort, så de ikke kan regne ud hvor spar bonde sidder.</p></div>`;
+      } else {
+        h += `<div class="box"><div class="msg">${esc(P[v.turn].name)} trækker fra ${esc(tgt.name)}</div></div>`;
+      }
+    }
+    if (v.drew) h += `<p class="note">Du trak ${cardTxt(v.drew)}</p>`;
+    if (v.lost) h += `<p class="note">${esc(v.lost.by)} trak din ${cardTxt(v.lost.card)}</p>`;
+    h += `<div class="box"><div class="msg">Dine kort (${v.hand.length})</div>`;
+    h += v.hand.length ? `<div class="cards">${v.hand.map(cardHtml).join('')}</div>`
+                       : (playing ? '<p class="note">Du er ude – godt gået! 🎉</p>' : '');
+    if (playing && v.hand.length > 1) h += `<div style="margin-top:12px"><button class="sec" onclick="send({t:'shuffle'})">Bland mine kort</button></div>`;
+    h += '</div>';
+    if (v.isHost) h += `<button class="${v.phase === 'over' ? '' : 'sec'}" onclick="newGame()">Nyt spil</button>`;
+  }
+  h += `<div class="box" style="margin-top:14px"><ul class="log">${v.log.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>`;
+  app.innerHTML = h;
+}
+
+render();
+</script>
+</body>
+</html>
