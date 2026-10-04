@@ -61,7 +61,7 @@ button:disabled{opacity:.45;cursor:default}
 .card.new{transform:translateY(-12px);box-shadow:0 0 0 3px var(--gold),0 4px 10px rgba(0,0,0,.4)}
 .bar{display:flex;align-items:center;gap:8px;padding:6px 8px 0;position:relative;z-index:1}
 .count{border:2px solid var(--gold);border-radius:8px;background:#5d5a3a;color:#ffe14d;font-weight:800;padding:4px 10px;font-size:18px;display:flex;align-items:center;gap:8px}
-.pill{flex:1;min-width:0;text-align:center;background:linear-gradient(#fffbea,#efe2b0);color:#2b2100;border:2px solid #6b5520;border-radius:999px;padding:8px 12px;font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{flex:1;min-width:0;text-align:center;background:linear-gradient(#fffbea,#efe2b0);color:#2b2100;border:2px solid #6b5520;border-radius:999px;padding:8px 10px;font-weight:800;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pill.go{background:linear-gradient(#ffe57a,var(--gold));animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{50%{box-shadow:0 0 0 4px rgba(255,255,255,.7)}}
 .hand{padding:16px 0 calc(10px + env(safe-area-inset-bottom));min-height:40px}
@@ -69,6 +69,13 @@ button:disabled{opacity:.45;cursor:default}
 .over .big{font-size:22px;font-weight:800;margin:8px 0 14px}
 .logp{position:absolute;right:10px;top:64px;width:min(86%,340px);max-height:50%;overflow:auto;background:rgba(45,15,0,.9);border-radius:14px;padding:10px 12px;z-index:4;font-size:14px}
 .logp ul{margin:0;padding-left:18px}
+.mc{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:40px;padding:0 3px;border-radius:5px;background:#fff;color:var(--blk);font-weight:800;font-size:14px;box-shadow:0 1px 3px rgba(0,0,0,.35);vertical-align:middle}
+.mc.red{color:var(--red)}
+.thr{display:flex;gap:3px;margin-top:4px}
+.seat.sm .mc{min-width:24px;height:32px;font-size:12px}
+.center .note .mc{height:28px;min-width:26px;font-size:13px;margin-left:4px}
+.pair{display:flex;gap:6px}
+.bar .mc{height:32px;min-width:26px;font-size:13px}
 .toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:rgba(45,15,0,.9);padding:8px 14px;border-radius:999px;font-weight:700;z-index:9}
 </style>
 </head>
@@ -184,6 +191,7 @@ function viewFor(i){
 // ---------- Computerspillere (kun værten) ----------
 // En computer er en spiller uden forbindelse; når det er dens tur, trækker den et tilfældigt kort.
 let botTimer = null;
+const BOT_MS = 2500;   // computerens betænkningstid: tid til at se hvert træk
 
 function addBot(){
   if (G.phase !== 'lobby' || G.players.length >= 8) return;
@@ -217,12 +225,35 @@ function scheduleBot(){
   botTimer = setTimeout(() => {
     if (G.phase !== 'playing' || G.turn !== p) return;
     doDraw(p, Math.floor(Math.random() * G.players[nextActive(p)].hand.length));
-  }, 1200);
+  }, BOT_MS);
+}
+
+// ---------- Bordet (kun værten): hvad hver spiller sidst trak og smed ----------
+// Motoren gemmer kun det seneste træk. Bliver det trukne kort ikke i hånden, dannede det et par
+// med sin makker: samme værdi, den anden kulør i samme farve.
+const PARTNER = { '♠':'♣', '♣':'♠', '♥':'♦', '♦':'♥' };
+let table = null, seenDraw = null, seenLog = null;
+
+function noteTable(){
+  if (G.log !== seenLog){ seenLog = G.log; table = { throws:{}, newest:null, drew:{}, lost:{} }; }   // nyt spil = ny log
+  const ld = G.lastDraw;
+  if (!ld || ld === seenDraw) return;
+  seenDraw = ld;
+  table.drew[ld.to] = ld.card;
+  table.lost[ld.from] = { card: ld.card, by: G.players[ld.to].name };
+  if (!G.players[ld.to].hand.includes(ld.card)){
+    const pair = [{ r: ld.card.r, s: PARTNER[ld.card.s] }, ld.card];
+    table.throws[ld.to] = pair;
+    table.newest = { by: ld.to, cards: pair };
+  }
 }
 
 function broadcast(){
+  noteTable();
   G.players.forEach((p,i) => {
     const v = viewFor(i);
+    v.throws = table.throws; v.newest = table.newest;
+    v.drew = table.drew[i] || null; v.lost = table.lost[i] || null;
     if (i === 0){ view = v; render(); }
     else if (p.conn && p.online){ try { p.conn.send(v); } catch(e) {} }
   });
@@ -339,6 +370,8 @@ function shareRoom(){
   else if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => flash('Link kopieret'));
 }
 
+const miniCard = c => `<span class="mc ${isRed(c) ? 'red' : ''}">${esc(rankTxt(c.r))}${c.s}</span>`;
+
 function cardHtml(c, cls = '', style = ''){
   const r = esc(rankTxt(c.r)), face = c.r === 'J' || c.r === 'Q' || c.r === 'K';
   return `<div class="card ${isRed(c) ? 'red' : ''} ${cls}" style="${style}"><div class="ci">${r}<br>${c.s}</div>` +
@@ -366,7 +399,8 @@ function seatsHtml(v){
     const cls = [m > 4 ? 'sm' : '', playing && i === v.turn ? 'turn' : '', playing && i === v.target ? 'target' : '', p.out ? 'out' : ''].join(' ');
     h += `<div class="seat ${cls}" style="left:${x}%;top:${y}%"><div class="av">${avatar(p)}</div>` +
       `<div class="plate"><div class="nm">${esc(p.name)}${p.online ? '' : ' ⚠️'}</div>` +
-      `<div class="ct"><span class="mini"></span><span>${p.out ? 'Ude' : p.count}</span></div></div></div>`;
+      `<div class="ct"><span class="mini"></span><span>${p.out ? 'Ude' : p.count}</span></div></div>` +
+      (v.throws && v.throws[i] ? `<div class="thr">${v.throws[i].map(miniCard).join('')}</div>` : '') + '</div>';
   }
   return h;
 }
@@ -427,8 +461,10 @@ function render(){
     `<button class="rb" title="Log" onclick="showLog=!showLog;render()">${ICON.log}</button></div></div>`;
 
   h += '<div class="arena">' + seatsHtml(v) + '<div class="center">';
-  if (v.drew) h += `<p class="note">Du trak</p>${cardHtml(v.drew, '', '--cw:54px')}`;
-  else if (v.lost) h += `<p class="note">${esc(v.lost.by)} trak din</p>${cardHtml(v.lost.card, '', '--cw:54px')}`;
+  if (v.newest) h += `<p class="note">${v.newest.by === me ? 'Du' : esc(P[v.newest.by].name)} smed</p>` +
+    `<div class="pair">${v.newest.cards.map(c => cardHtml(c, '', '--cw:54px')).join('')}</div>`;
+  if (v.drew) h += `<p class="note">Du trak${miniCard(v.drew)}</p>`;
+  if (v.lost) h += `<p class="note">${esc(v.lost.by)} trak din${miniCard(v.lost.card)}</p>`;
   h += '</div>';
   if (!playing){
     const lost = v.loser === me;
@@ -440,7 +476,9 @@ function render(){
 
   if (myTurn) h += '<div class="pick">' + fan(tgt.count, 50, (i, st) => `<div class="card back tap" style="${st}" onclick="send({t:'draw',index:${i}})"></div>`) + '</div>';
 
-  h += `<div class="bar"><div class="count"><span class="mini"></span>${v.hand.length}</div><div class="pill ${go ? 'go' : ''}">${pill}</div></div>`;
+  h += `<div class="bar"><div class="count"><span class="mini"></span>${v.hand.length}</div>` +
+    (v.throws && v.throws[me] ? `<div class="thr" style="margin:0">${v.throws[me].map(miniCard).join('')}</div>` : '') +
+    `<div class="pill ${go ? 'go' : ''}">${pill}</div></div>`;
   const cw = Math.round(Math.max(56, Math.min(92, (Math.min(window.innerWidth || 380, 720) - 16) / 5.6)));
   h += '<div class="hand">' + (v.hand.length ? fan(v.hand.length, cw, (i, st, ov) => cardHtml(v.hand[i], (sameCard(v.hand[i], v.drew) ? 'new ' : '') + (ov ? 'ov' : ''), st)) : '') + '</div>';
 
