@@ -17,6 +17,8 @@ Et multiplayer-kortspil i browseren for 2–8 spillere: dansk Sorteper med almin
 3. **Deltag:** Vennerne åbner linket, skriver deres navn og trykker "Deltag". Uden link kan man skrive koden i stedet.
 4. Værten trykker "Start spil", når alle er med.
 
+**Alene:** Tryk "🤖 Prøv mod 3 computere" på forsiden for at spille mod tre computere med det samme. Det kræver hverken rum eller netværk. I lobbyen kan værten også fylde op med "Tilføj computer". Computerne trækker et tilfældigt kort, når det er deres tur.
+
 ## Arkitektur
 
 - Én selvstændig `index.html` (HTML/CSS/vanilla JS), hostet på GitHub Pages.

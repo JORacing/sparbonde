@@ -132,6 +132,8 @@ function act(p, msg){
   if (msg.t === 'draw') doDraw(p, msg.index);
   else if (msg.t === 'shuffle' && G.phase === 'playing'){ shuffle(G.players[p].hand); broadcast(); }
   else if (msg.t === 'start' && p === 0) startGame();
+  else if (msg.t === 'bot' && p === 0) addBot();
+  else if (msg.t === 'nobots' && p === 0) removeBots();
 }
 
 function viewFor(i){
@@ -139,7 +141,7 @@ function viewFor(i){
   return {
     t: 'state', me: i, isHost: i === 0, code: roomCode, phase: G.phase, turn: G.turn,
     target: G.phase === 'playing' ? nextActive(G.turn) : -1,
-    players: G.players.map(p => ({ name: p.name, count: p.hand.length, out: p.out, online: p.online })),
+    players: G.players.map(p => ({ name: p.name, count: p.hand.length, out: p.out, online: p.online, bot: !!p.bot })),
     hand: G.players[i].hand, log: G.log.slice(-8), loser: G.loser,
     drew: ld && ld.to === i ? ld.card : null,
     lost: ld && ld.from === i ? { card: ld.card, by: G.players[ld.to].name } : null
@@ -147,12 +149,52 @@ function viewFor(i){
 }
 // ---------- ENGINE END ----------
 
+// ---------- Computerspillere (kun værten) ----------
+// En computer er en spiller uden forbindelse; når det er dens tur, trækker den et tilfældigt kort.
+let botTimer = null;
+
+function addBot(){
+  if (G.phase !== 'lobby' || G.players.length >= 8) return;
+  let n = 1;
+  while (G.players.some(p => p.name === 'Computer ' + n)) n++;
+  G.players.push({ id:'bot' + n, name:'Computer ' + n, hand:[], out:false, conn:null, online:true, bot:true });
+  addLog(`Computer ${n} kom ind`);
+  broadcast();
+}
+
+function removeBots(){
+  if (G.phase !== 'lobby') return;
+  G.players = G.players.filter(p => !p.bot);
+  addLog('Computerne gik');
+  broadcast();
+}
+
+function soloGame(){
+  const name = getName(); if (!name) return;
+  if (peer){ peer.destroy(); peer = null; }
+  isHost = true; roomCode = 'DEMO';
+  G = { phase:'lobby', players:[{ id:'host', name, hand:[], out:false, conn:null, online:true }], turn:0, log:[], loser:null, lastDraw:null };
+  for (let i = 0; i < 3; i++) addBot();
+  startGame();
+}
+
+function scheduleBot(){
+  clearTimeout(botTimer);
+  if (!G || G.phase !== 'playing' || !G.players[G.turn].bot) return;
+  const p = G.turn;
+  botTimer = setTimeout(() => {
+    if (G.phase !== 'playing' || G.turn !== p) return;
+    doDraw(p, Math.floor(Math.random() * G.players[nextActive(p)].hand.length));
+  }, 1200);
+}
+
 function broadcast(){
   G.players.forEach((p,i) => {
     const v = viewFor(i);
     if (i === 0){ view = v; render(); }
     else if (p.conn && p.online){ try { p.conn.send(v); } catch(e) {} }
   });
+  scheduleBot();
 }
 
 // ---------- Netværk ----------
@@ -255,7 +297,7 @@ function renderLobby(){
     <div class="box">
       <label>Dit navn</label>
       <input id="name" maxlength="16" placeholder="Navn" value="${esc(lsGet('sb_name') || '')}">
-      ${hashCode ? '' : '<button onclick="createRoom()">Opret nyt rum</button>'}
+      ${hashCode ? '' : '<button onclick="createRoom()">Opret nyt rum</button><button class="sec" style="margin-top:8px" onclick="soloGame()">🤖 Prøv mod 3 computere</button>'}
     </div>
     <div class="box">
       <label>Deltag med kode</label>
@@ -272,13 +314,15 @@ function render(){
   let h = `<div class="top"><h1>Spar Bonde</h1><span class="chip">Rum ${esc(v.code)}</span></div>`;
   h += '<div class="players">' + P.map((p,i) =>
     `<span class="chip ${playing && i===v.turn ? 'turn':''} ${playing && i===v.target ? 'target':''} ${p.out ? 'out':''}">` +
-    `${esc(p.name)}${i===me ? ' (dig)':''}${v.phase!=='lobby' ? ' · ' + p.count : ''}${p.online ? '' : ' ⚠️'}</span>`).join('') + '</div>';
+    `${p.bot ? '🤖 ' : ''}${esc(p.name)}${i===me ? ' (dig)':''}${v.phase!=='lobby' ? ' · ' + p.count : ''}${p.online ? '' : ' ⚠️'}</span>`).join('') + '</div>';
 
   if (v.phase === 'lobby'){
     h += `<div class="box"><p class="note">Del koden <b>${esc(v.code)}</b> eller linket:</p>
       <input readonly value="${esc(shareLink(v.code))}" onclick="this.select()">`;
     h += v.isHost
-      ? `<button onclick="send({t:'start'})" ${P.length < 2 ? 'disabled' : ''}>Start spil (${P.length} spillere)</button>`
+      ? `<button class="sec" style="margin-bottom:8px" onclick="send({t:'bot'})" ${P.length >= 8 ? 'disabled' : ''}>🤖 Tilføj computer</button>` +
+        (P.some(p => p.bot) ? `<button class="sec" style="margin-bottom:8px" onclick="send({t:'nobots'})">Fjern computere</button>` : '') +
+        `<button onclick="send({t:'start'})" ${P.length < 2 ? 'disabled' : ''}>Start spil (${P.length} spillere)</button>`
       : '<p class="note">Venter på at værten starter…</p>';
     h += '</div>';
   } else {
